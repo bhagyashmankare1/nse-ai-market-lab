@@ -171,7 +171,7 @@ symbol = selected_symbol.strip().upper()
 if not symbol:
     symbol = "RELIANCE.NS"
 
-tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "📚 Learning centre", "🧪 Classroom lab"]
+tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "🧹 Data quality lab", "📚 Learning centre", "🧪 Classroom lab"]
 tabs = st.tabs(tab_names)
 
 # Market overview
@@ -375,8 +375,54 @@ with tabs[4]:
         st.info("Load historical data to use the research desk.")
     st.warning("No stock recommendations, entry/exit levels, F&O strategies, targets or stop-loss values are generated.")
 
-# Learning centre
+
+# Data quality lab
 with tabs[5]:
+    st.subheader("Historical data quality audit")
+    st.caption("A transparent set of checks on the downloaded observations. These checks do not certify the provider or guarantee that the data is correct.")
+    audit = get_history(symbol, period, interval)
+    if audit.empty:
+        st.info("No historical observations are available for this ticker and interval. Try another symbol or refresh later.")
+    else:
+        checks = []
+        required = ["Open", "High", "Low", "Close"]
+        missing_columns = [column for column in required if column not in audit.columns]
+        checks.append({
+            "Check": "Required OHLC columns",
+            "Result": "PASS" if not missing_columns else "REVIEW",
+            "Details": "All present" if not missing_columns else "Missing: " + ", ".join(missing_columns)
+        })
+        duplicate_count = int(audit.index.duplicated().sum())
+        checks.append({"Check": "Duplicate timestamps", "Result": "PASS" if duplicate_count == 0 else "REVIEW", "Details": f"{duplicate_count} duplicate rows"})
+        missing_cells = int(audit[required].isna().sum().sum()) if not missing_columns else int(audit.isna().sum().sum())
+        checks.append({"Check": "Missing price values", "Result": "PASS" if missing_cells == 0 else "REVIEW", "Details": f"{missing_cells} missing cells in available price columns"})
+        if not missing_columns:
+            invalid_ohlc = int(((audit["High"] < audit["Low"]) | (audit["High"] < audit["Open"]) | (audit["High"] < audit["Close"]) | (audit["Low"] > audit["Open"]) | (audit["Low"] > audit["Close"])).fillna(False).sum())
+            nonpositive = int((audit[required] <= 0).any(axis=1).sum())
+            checks.append({"Check": "OHLC range consistency", "Result": "PASS" if invalid_ohlc == 0 else "REVIEW", "Details": f"{invalid_ohlc} rows with inconsistent high/low ranges"})
+            checks.append({"Check": "Positive price values", "Result": "PASS" if nonpositive == 0 else "REVIEW", "Details": f"{nonpositive} rows with zero or negative prices"})
+        if "Volume" in audit.columns:
+            negative_volume = int((audit["Volume"] < 0).fillna(False).sum())
+            checks.append({"Check": "Non-negative volume", "Result": "PASS" if negative_volume == 0 else "REVIEW", "Details": f"{negative_volume} rows with negative volume"})
+        audit_df = pd.DataFrame(checks)
+        total_checks = len(audit_df)
+        passed = int((audit_df["Result"] == "PASS").sum())
+        reviewed = total_checks - passed
+        q1, q2, q3 = st.columns(3)
+        q1.metric("Observations", f"{len(audit):,}")
+        q2.metric("Checks passed", f"{passed}/{total_checks}")
+        q3.metric("Items to review", reviewed)
+        st.dataframe(audit_df, hide_index=True, use_container_width=True)
+        st.markdown("### Coverage details")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("First observation", str(audit.index.min().date()))
+        c2.metric("Last observation", str(audit.index.max().date()))
+        c3.metric("Selected interval", interval)
+        st.caption("This audit checks only the rows returned by Yahoo Finance. It cannot detect every corporate-action adjustment, survivorship bias, missing exchange session or incorrect source value.")
+        st.download_button("Download data quality report (CSV)", audit_df.to_csv(index=False).encode("utf-8"), file_name=f"{symbol.replace('.', '_')}_data_quality.csv", mime="text/csv")
+
+# Learning centre
+with tabs[6]:
     st.subheader("Learning centre")
     lessons = {
         "Candlesticks": "A candle summarises open, high, low and close during one interval. The body shows the open-to-close range; the wicks show the interval extremes.",
@@ -416,7 +462,7 @@ with tabs[5]:
     st.markdown("- [NISM investor awareness learning](https://www.nism.ac.in/sebi-investor-awareness-test/)")
 
 # Classroom lab
-with tabs[6]:
+with tabs[7]:
     st.subheader("Classroom portfolio • fictional points only")
     st.write("A learning simulation for recording made-up examples. It is not connected to a broker and does not use real money.")
     if "classroom_points" not in st.session_state:
