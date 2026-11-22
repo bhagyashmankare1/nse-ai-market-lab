@@ -179,7 +179,7 @@ symbol = selected_symbol.strip().upper()
 if not symbol:
     symbol = "RELIANCE.NS"
 
-tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "🧹 Data quality lab", "📚 Learning centre", "🧪 Classroom lab", "📝 Research report builder"]
+tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "🧹 Data quality lab", "📚 Learning centre", "🧪 Classroom lab", "📝 Research report builder", "🤖 Research team"]
 tabs = st.tabs(tab_names)
 
 # Market overview
@@ -495,6 +495,121 @@ with tabs[7]:
         st.session_state.classroom_notes = []
         st.success("Classroom lab reset.")
 
+
+# Evidence-based multi-role research workspace
+with tabs[9]:
+    st.subheader("Evidence-based research team")
+    st.caption("Five specialised research modules work from the same selected-company data. This first version is transparent and rule-based, not five autonomous AI models; no paid API key or real-money trading connection is used.")
+    st.info("Educational research only. The modules describe available information and data limitations; they do not generate stock picks, forecasts, buy/sell signals or trading instructions.")
+
+    with st.spinner("Research modules are reviewing the available company data..."):
+        team_profile = get_company_profile(symbol)
+        team_hist = get_history(symbol, period, "1d")
+        team_news = get_company_news(symbol)
+        team_close = pd.to_numeric(team_hist["Close"], errors="coerce").dropna() if not team_hist.empty and "Close" in team_hist.columns else pd.Series(dtype=float)
+
+    team_name = (team_profile.get("longName") or team_profile.get("shortName") or symbol) if team_profile else symbol
+    team_sector = team_profile.get("sector") or "Not returned" if team_profile else "Profile unavailable"
+    team_industry = team_profile.get("industry") or "Not returned" if team_profile else "Profile unavailable"
+    team_summary = team_profile.get("longBusinessSummary") or "No business description was returned." if team_profile else "No company profile was returned."
+    st.markdown(f"### {team_name}  `{symbol}`")
+    st.caption(f"Selected historical window: {period} • Data interval: 1d • Profile source: Yahoo Finance via yfinance (unofficial)")
+
+    role1, role2 = st.columns(2)
+    with role1:
+        with st.expander("01 · Company profile researcher", expanded=True):
+            st.write(f"**Sector:** {team_sector}")
+            st.write(f"**Industry:** {team_industry}")
+            st.write(team_summary)
+            if team_profile.get("website"):
+                st.markdown(f"[Company website]({team_profile.get('website')})")
+    with role2:
+        with st.expander("02 · Historical data analyst", expanded=True):
+            if len(team_close) > 1:
+                total_change = (float(team_close.iloc[-1]) / float(team_close.iloc[0]) - 1) * 100 if float(team_close.iloc[0]) else 0.0
+                returns = team_close.pct_change().dropna()
+                hist_vol = float(returns.std() * (252 ** 0.5) * 100) if len(returns) > 1 else None
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Observations", f"{len(team_close):,}")
+                m2.metric("Period change", f"{total_change:+.2f}%")
+                m3.metric("Annualised historical volatility", f"{hist_vol:.1f}%" if hist_vol is not None else "N/A")
+                st.caption(f"Observed range: {team_close.index.min().date()} to {team_close.index.max().date()}. Volatility is a descriptive estimate based on available daily returns, not a forecast.")
+            else:
+                st.warning("There are not enough closing-price observations to calculate historical statistics.")
+
+    with st.expander("03 · News and source researcher", expanded=True):
+        news_rows = []
+        for news_item in team_news[:10]:
+            news_item = news_item.get("content", news_item) if isinstance(news_item, dict) else {}
+            headline = news_item.get("title") or news_item.get("headline")
+            canonical = news_item.get("canonicalUrl") or news_item.get("link") or {}
+            headline_url = canonical.get("url") if isinstance(canonical, dict) else canonical
+            publisher = news_item.get("publisher") or (news_item.get("provider", {}).get("displayName") if isinstance(news_item.get("provider"), dict) else None)
+            if headline:
+                news_rows.append((str(headline), str(publisher or "Publisher not listed"), str(headline_url or "")))
+        if news_rows:
+            for headline, publisher, headline_url in news_rows:
+                if headline_url.startswith(("http://", "https://")):
+                    st.markdown(f"- [{headline}]({headline_url})")
+                else:
+                    st.markdown(f"- {headline}")
+                st.caption(publisher)
+        else:
+            st.write("No usable headlines were returned in this refresh.")
+        st.caption("Headlines are not proof of a claim. Open the original article, check its date and compare it with company or exchange disclosures.")
+        st.markdown("[NSE company announcements and filings](https://www.nseindia.com/companies-listing/corporate-filings-announcements)")
+
+    with st.expander("04 · Data quality reviewer", expanded=True):
+        if team_hist.empty:
+            st.warning("No historical dataset is available for the selected company.")
+            quality_rows = [{"Check": "Historical data availability", "Result": "REVIEW", "Details": "No rows returned"}]
+        else:
+            required_cols = ["Open", "High", "Low", "Close"]
+            missing_cols = [x for x in required_cols if x not in team_hist.columns]
+            duplicate_rows = int(team_hist.index.duplicated().sum())
+            missing_prices = int(team_hist[required_cols].isna().sum().sum()) if not missing_cols else int(team_hist.isna().sum().sum())
+            quality_rows = [
+                {"Check": "Required OHLC columns", "Result": "PASS" if not missing_cols else "REVIEW", "Details": "All present" if not missing_cols else ", ".join(missing_cols)},
+                {"Check": "Duplicate timestamps", "Result": "PASS" if duplicate_rows == 0 else "REVIEW", "Details": f"{duplicate_rows} duplicates"},
+                {"Check": "Missing price cells", "Result": "PASS" if missing_prices == 0 else "REVIEW", "Details": f"{missing_prices} missing values"},
+            ]
+            if not missing_cols:
+                bad_ranges = int(((team_hist["High"] < team_hist["Low"]) | (team_hist["High"] < team_hist["Open"]) | (team_hist["High"] < team_hist["Close"]) | (team_hist["Low"] > team_hist["Open"]) | (team_hist["Low"] > team_hist["Close"])).fillna(False).sum())
+                quality_rows.append({"Check": "OHLC range consistency", "Result": "PASS" if bad_ranges == 0 else "REVIEW", "Details": f"{bad_ranges} inconsistent rows"})
+        quality_df = pd.DataFrame(quality_rows)
+        st.dataframe(quality_df, hide_index=True, use_container_width=True)
+        st.caption("These checks cannot detect every incorrect source value, corporate-action issue, missing exchange session or survivorship bias.")
+
+    with st.expander("05 · Evidence synthesiser", expanded=True):
+        passed_checks = int((quality_df["Result"] == "PASS").sum())
+        review_checks = int((quality_df["Result"] == "REVIEW").sum())
+        synthesis = [
+            f"Company profile: {team_name}; sector information: {team_sector}; industry information: {team_industry}.",
+            f"Historical dataset: {len(team_close)} usable closing-price observations for the selected window.",
+            f"News coverage: {len(news_rows)} usable headlines returned in this refresh.",
+            f"Data review: {passed_checks} basic checks passed and {review_checks} checks need review."
+        ]
+        if len(team_close) > 1:
+            synthesis.append(f"Descriptive historical change across the first and last available close: {total_change:+.2f}%. This does not indicate what may happen next.")
+        for item in synthesis:
+            st.markdown(f"- {item}")
+        st.warning("Evidence gaps: provider data may be delayed, incomplete or revised; profile fields and headlines may be missing; this workspace does not independently verify company filings or establish the cause of historical price changes.")
+        brief = "\n".join([
+            "NSE AI MARKET LAB — EDUCATIONAL RESEARCH BRIEF",
+            f"Company: {team_name} ({symbol})",
+            f"Prepared: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"Historical window: {period}",
+            "",
+            "FIVE-ROLE FINDINGS",
+            *synthesis,
+            "",
+            "EVIDENCE LIMITATIONS",
+            "Yahoo Finance via yfinance is an unofficial data source. Data may be delayed, incomplete or revised. Headlines and profile fields require independent verification.",
+            "This is educational information only, not investment advice, a forecast, or a trading instruction."
+        ])
+        st.download_button("Download consolidated research brief (TXT)", brief.encode("utf-8"), file_name=f"{symbol.replace('.', '_')}_research_brief.txt", mime="text/plain")
+
+    st.caption("Next development stage: connect a genuine language model only after selecting a provider and reviewing its free-tier limits, privacy terms and API-key setup. This version intentionally does not pretend that rule-based modules are autonomous AI agents.")
 
 # Research report builder
 with tabs[8]:
