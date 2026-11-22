@@ -245,10 +245,9 @@ with tabs[1]:
             )
             fig.update_coloraxes(
                 colorbar=dict(
-                    title="Historical change",
+                    title=dict(text="Historical change", font=dict(color="#e5e7eb")),
                     ticksuffix="%",
                     tickfont=dict(color="#e5e7eb"),
-                    titlefont=dict(color="#e5e7eb"),
                     outlinecolor="#64748b",
                 )
             )
