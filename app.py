@@ -2,24 +2,25 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime
 
 st.set_page_config(page_title="NSE AI Market Lab", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
-.stApp {background:#0b1020;}
-[data-testid="stHeader"] {background:rgba(11,16,32,.85);}
-.block-container {max-width:1500px;padding-top:1.6rem;padding-bottom:3rem;}
-[data-testid="stSidebar"] {background:#10182b;border-right:1px solid #24314b;}
-[data-testid="stMetric"] {background:linear-gradient(145deg,#151f35,#111a2d);border:1px solid #263653;border-radius:15px;padding:16px 18px;}
-[data-testid="stMetricLabel"] {color:#a9b8d0;}
-[data-testid="stMetricValue"] {color:#f4f7ff;}
-.hero {background:linear-gradient(115deg,#172846,#14213b 55%,#1b2944);border:1px solid #2b4166;border-radius:20px;padding:24px 28px;margin-bottom:18px;}
-.hero-kicker {color:#9db9e8;font-size:.78rem;letter-spacing:.12em;font-weight:700;}
-.hero h1 {color:#f4f7ff;margin:7px 0 4px;font-size:2rem;}
-.hero p {color:#bdcbe0;margin:0;}
-.muted {color:#9aabc4;font-size:.88rem;}
-.stAlert {border-radius:12px;}
+.stApp{background:#0b1020}
+[data-testid="stHeader"]{background:rgba(11,16,32,.85)}
+.block-container{max-width:1500px;padding-top:1.3rem;padding-bottom:3rem}
+[data-testid="stSidebar"]{background:#10182b;border-right:1px solid #24314b}
+[data-testid="stMetric"]{background:linear-gradient(145deg,#151f35,#111a2d);border:1px solid #263653;border-radius:14px;padding:14px}
+[data-testid="stMetricLabel"]{color:#a9b8d0}
+[data-testid="stMetricValue"]{color:#f4f7ff}
+.hero{background:linear-gradient(115deg,#172846,#14213b 55%,#1b2944);border:1px solid #2b4166;border-radius:20px;padding:22px 26px;margin-bottom:16px}
+.hero-kicker{color:#9db9e8;font-size:.76rem;letter-spacing:.12em;font-weight:700}
+.hero h1{color:#f4f7ff;margin:7px 0 4px;font-size:2rem}
+.hero p{color:#bdcbe0;margin:0}
+.small-muted{color:#9aabc4;font-size:.85rem}
 </style>
 """, unsafe_allow_html=True)
 
@@ -27,156 +28,323 @@ st.markdown("""
 <div class="hero">
 <div class="hero-kicker">INDIA • MARKET EDUCATION • HISTORICAL RESEARCH</div>
 <h1>🇮🇳 NSE AI Market Lab</h1>
-<p>Explore historical market data, understand financial concepts, and learn how to question data.</p>
+<p>One learning workspace for market structure, company research, sector context and financial literacy.</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.info("Educational project only. This dashboard describes historical data and financial concepts. It does not provide buy/sell recommendations, forecasts, trade setups, broker connections, or real orders. Yahoo Finance data is unofficial and may be delayed, incomplete, or unavailable.")
+st.warning("EDUCATIONAL USE ONLY • Data may be delayed, incomplete or unavailable. This app does not provide stock picks, buy/sell signals, forecasts, F&O strategies, trade targets, broker connections or real orders.")
+
+# Broad sample universe for educational comparisons; not a recommendation list.
+SECTOR_UNIVERSE = {
+    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "AXISBANK.NS"],
+    "Information Technology": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS"],
+    "Energy": ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS"],
+    "Automobiles": ["MARUTI.NS", "M&M.NS", "TATAMOTORS.NS", "BAJAJ-AUTO.NS"],
+    "Consumer": ["ITC.NS", "HINDUNILVR.NS", "TITAN.NS", "ASIANPAINT.NS"],
+    "Pharma": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS"],
+    "Industrials": ["LT.NS", "SIEMENS.NS", "BEL.NS", "HAL.NS"],
+}
+
+INDEX_SYMBOLS = {
+    "NIFTY 50": "^NSEI",
+    "SENSEX": "^BSESN",
+    "NIFTY BANK": "^NSEBANK",
+    "NIFTY IT": "^CNXIT",
+}
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_history(symbol, period, interval):
+    data = yf.download(symbol, period=period, interval=interval, auto_adjust=True, progress=False, threads=False)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data.dropna(how="all")
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_company_profile(symbol):
+    try:
+        info = yf.Ticker(symbol).info
+        if not isinstance(info, dict):
+            return {}
+        return info
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_company_news(symbol):
+    try:
+        return yf.Ticker(symbol).news or []
+    except Exception:
+        return []
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_sector_history(period):
+    symbols = sorted(set(s for group in SECTOR_UNIVERSE.values() for s in group))
+    raw = yf.download(symbols, period=period, interval="1d", auto_adjust=True, progress=False, threads=False)
+    if raw.empty:
+        return pd.DataFrame()
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"] if "Close" in raw.columns.get_level_values(0) else pd.DataFrame()
+    else:
+        close = raw[["Close"]] if "Close" in raw else pd.DataFrame()
+    if close.empty:
+        return pd.DataFrame()
+    rows = []
+    for sector, names in SECTOR_UNIVERSE.items():
+        changes = []
+        for name in names:
+            try:
+                series = close[name].dropna()
+                if len(series) > 1 and float(series.iloc[0]) != 0:
+                    changes.append((float(series.iloc[-1]) / float(series.iloc[0]) - 1) * 100)
+            except Exception:
+                continue
+        if changes:
+            rows.append({"Sector": sector, "Average historical change (%)": sum(changes) / len(changes), "Companies with data": len(changes)})
+    return pd.DataFrame(rows)
 
 with st.sidebar:
-    st.markdown("## 🔎 Market explorer")
-    symbol_input = st.text_input("NSE/BSE symbol", value="RELIANCE.NS", help="Examples: RELIANCE.NS, TCS.NS, INFY.NS, SBIN.BO")
-    period = st.selectbox("Historical period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
-    interval = st.selectbox("Data interval", ["1d", "1wk", "1mo"], index=0)
-    load = st.button("↻ Load historical data", type="primary", use_container_width=True)
+    st.markdown("## 🧭 Navigation")
+    selected_symbol = st.text_input("Company ticker", value="RELIANCE.NS", help="Examples: RELIANCE.NS, TCS.NS, INFY.NS, SBIN.NS")
+    period = st.selectbox("Historical comparison period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
+    interval = st.selectbox("Chart interval", ["1d", "1wk", "1mo"], index=0)
+    st.caption("Source: Yahoo Finance unofficial data. Cross-check important facts with NSE filings and company disclosures.")
     st.divider()
-    st.markdown("**Data source**")
-    st.caption("Yahoo Finance (unofficial). Verify important information with exchange filings and other authoritative sources.")
-    st.markdown("**Learning mode**")
-    st.caption("All portfolio values are fictional points. No broker or trading account is connected.")
+    st.markdown("**Official learning links**")
+    st.markdown("[NSE India reports](https://www.nseindia.com/report-detail)")
+    st.markdown("[SEBI Investor](https://investor.sebi.gov.in/)")
+    st.markdown("[SEBI learning material](https://investor.sebi.gov.in/iematerial.html)")
 
-if "data" not in st.session_state:
-    st.session_state.data = None
-if "symbol" not in st.session_state:
-    st.session_state.symbol = "RELIANCE.NS"
+symbol = selected_symbol.strip().upper()
+if not symbol:
+    symbol = "RELIANCE.NS"
 
-requested_symbol = symbol_input.strip().upper()
-if load or st.session_state.data is None:
-    if not requested_symbol:
-        st.error("Enter a valid ticker symbol first.")
-    else:
+tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "📚 Learning centre", "🧪 Classroom lab"]
+tabs = st.tabs(tab_names)
+
+# Market overview
+with tabs[0]:
+    st.subheader("Market snapshot")
+    st.caption("Index history is shown for context. It is not a live exchange feed.")
+    cols = st.columns(4)
+    for col, (label, ticker) in zip(cols, INDEX_SYMBOLS.items()):
         try:
-            with st.spinner(f"Loading historical data for {requested_symbol}…"):
-                downloaded = yf.download(requested_symbol, period=period, interval=interval, auto_adjust=True, progress=False, threads=False)
-                if isinstance(downloaded.columns, pd.MultiIndex):
-                    downloaded.columns = downloaded.columns.get_level_values(0)
-                downloaded = downloaded.dropna(how="all")
-                required = {"Open", "High", "Low", "Close"}
-                if downloaded.empty or not required.issubset(set(downloaded.columns)):
-                    st.session_state.data = None
-                    st.error("No usable historical data was returned. Check the ticker and try again later.")
-                else:
-                    st.session_state.data = downloaded
-                    st.session_state.symbol = requested_symbol
-                    st.session_state.loaded_period = period
-                    st.session_state.loaded_interval = interval
+            hist = get_history(ticker, "5d", "1d")
+            if not hist.empty and "Close" in hist:
+                vals = hist["Close"].dropna()
+                last = float(vals.iloc[-1])
+                delta = ((last / float(vals.iloc[-2])) - 1) * 100 if len(vals) > 1 and vals.iloc[-2] else 0
+                col.metric(label, f"{last:,.2f}", f"{delta:+.2f}%")
+            else:
+                col.metric(label, "Unavailable")
         except Exception:
-            st.session_state.data = None
-            st.error("The data request could not be completed. Check your internet connection, ticker spelling, or try again later.")
-
-df = st.session_state.data
-if df is not None and not df.empty:
-    ticker = st.session_state.symbol
-    close = df["Close"].astype(float).dropna()
-    if close.empty:
-        st.error("The returned dataset does not contain usable closing values.")
-        st.stop()
-    latest = float(close.iloc[-1])
-    first = float(close.iloc[0])
-    period_change = ((latest / first) - 1) * 100 if first else 0.0
-    period_high = float(df["High"].max())
-    period_low = float(df["Low"].min())
-    avg20 = float(close.tail(20).mean())
-    date_start = df.index.min().strftime("%d %b %Y")
-    date_end = df.index.max().strftime("%d %b %Y")
-
-    st.subheader(f"{ticker} · Historical overview")
-    st.markdown(f'<p class="muted">Showing {len(df):,} observations from {date_start} to {date_end} · Period: {st.session_state.loaded_period} · Interval: {st.session_state.loaded_interval}</p>', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Latest available close", f"₹{latest:,.2f}")
-    c2.metric("Change in selected period", f"{period_change:+.2f}%")
-    c3.metric("Period high", f"₹{period_high:,.2f}")
-    c4.metric("Period low", f"₹{period_low:,.2f}")
-
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Historical charts", "🧠 Research desk", "📚 Learning centre", "🧪 Classroom portfolio"])
-
-    with tab1:
-        st.markdown("### Price history")
-        chart_type = st.radio("Chart style", ["Candlestick", "Closing line"], horizontal=True)
-        fig = go.Figure()
-        if chart_type == "Candlestick":
-            fig.add_trace(go.Candlestick(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name="Historical price"))
+            col.metric(label, "Unavailable")
+    st.markdown("### Selected company historical overview")
+    hist = get_history(symbol, period, interval)
+    if not hist.empty and "Close" in hist:
+        close = hist["Close"].astype(float).dropna()
+        if not close.empty:
+            a, b, c, d = st.columns(4)
+            a.metric("Latest available close", f"₹{float(close.iloc[-1]):,.2f}")
+            change = (float(close.iloc[-1]) / float(close.iloc[0]) - 1) * 100 if len(close) > 1 and close.iloc[0] else 0
+            b.metric("Selected-period change", f"{change:+.2f}%")
+            c.metric("Period high", f"₹{float(hist['High'].max()):,.2f}")
+            d.metric("Period low", f"₹{float(hist['Low'].min()):,.2f}")
+            st.caption(f"{len(hist):,} observations • {hist.index.min().date()} to {hist.index.max().date()} • {period} • {interval}")
         else:
-            fig.add_trace(go.Scatter(x=df.index, y=close, mode="lines", name="Closing price", line=dict(width=2)))
-        fig.add_trace(go.Scatter(x=df.index, y=close.rolling(20).mean(), mode="lines", name="20-observation average", line=dict(width=2, dash="dot")))
-        fig.update_layout(height=500, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10,r=10,t=25,b=10), legend=dict(orientation="h",y=1.08), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,24,42,0)")
-        st.plotly_chart(fig, use_container_width=True)
-        if "Volume" in df.columns:
-            st.markdown("### Trading volume history")
-            vol = go.Figure(go.Bar(x=df.index, y=df["Volume"], name="Volume"))
-            vol.update_layout(height=230, template="plotly_dark", margin=dict(l=10,r=10,t=15,b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,24,42,0)")
-            st.plotly_chart(vol, use_container_width=True)
-        st.caption("The 20-observation average is a descriptive summary of past data, not a trading signal.")
+            st.info("No closing-price values are available for this selection.")
+    else:
+        st.info("Historical data is not available for this ticker right now. Check the symbol or try again later.")
 
-    with tab2:
-        st.markdown("### Multi-agent educational research desk")
-        st.caption("These are transparent analysis roles using the displayed dataset—not autonomous trading agents.")
-        daily = close.pct_change().dropna()
-        volatility = float(daily.std() * (252 ** 0.5) * 100) if len(daily) > 1 else 0.0
-        above_avg = latest >= avg20
-        agents = [
-            ("1 · Data-quality reviewer", f"The dataset contains {len(df):,} observations from {date_start} to {date_end}. Check missing dates, unusual values, and confirm important figures with an authoritative source."),
-            ("2 · Chart explainer", f"The latest close is {'above' if above_avg else 'below'} the 20-observation average for this sample. This describes the selected history only; it does not forecast the next movement."),
-            ("3 · Risk-literacy educator", f"Simple annualised historical volatility estimate: {volatility:.1f}%. Volatility measures variation in past returns; it does not tell you the outcome of a future investment."),
-            ("4 · Market-context researcher", "A single company chart is only one part of the picture. Company announcements, sector conditions, broad indices, and economic events may also matter."),
-            ("5 · Skeptical reviewer", "Question the first interpretation. The selected period may be unusual, adjusted prices may differ from other sources, and historical patterns may not continue.")
-        ]
-        for title, body in agents:
-            with st.expander(title, expanded=True):
-                st.write(body)
-        st.warning("This research desk intentionally does not generate stock picks, entry/exit levels, targets, or stop-loss values.")
+# Sector map
+with tabs[1]:
+    st.subheader("Sector comparison map")
+    st.write("A broad educational sample of companies grouped by sector. Values are average historical changes over the selected period, not a complete exchange-wide heatmap.")
+    try:
+        sector_df = get_sector_history(period)
+        if not sector_df.empty:
+            fig = px.treemap(sector_df, path=["Sector"], values="Companies with data", color="Average historical change (%)",
+                             color_continuous_midpoint=0, hover_data={"Average historical change (%)":":.2f","Companies with data":True},
+                             title=f"Sample sector map • {period} historical window")
+            fig.update_layout(template="plotly_dark", height=520, paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(sector_df.sort_values("Average historical change (%)", ascending=False), hide_index=True, use_container_width=True)
+        else:
+            st.info("Sector sample data could not be loaded. Try again later.")
+    except Exception:
+        st.info("The sector comparison service is temporarily unavailable. Please try again later.")
+    st.caption("Coverage is limited to the sample tickers listed in the app. Missing companies do not mean a sector was inactive.")
 
-    with tab3:
-        st.markdown("### Learn the language of markets")
-        lessons = {
-            "Candlestick": "A candlestick summarises open, high, low and close for one time interval. The body represents the open-to-close range; the wicks show the interval's extremes.",
-            "Volume": "Volume counts the shares traded during an interval. It can provide context, but volume alone does not explain why a price changed.",
-            "Moving average": "A moving average smooths a sequence of earlier prices. It is a descriptive summary, not a prediction.",
-            "Volatility": "Volatility describes how much returns have varied. Historical volatility describes the past and cannot guarantee future outcomes.",
-            "Diversification": "Diversification means spreading exposure across different assets or sectors. It can reduce concentration, but it cannot remove every kind of risk.",
-            "Backtesting limitations": "A backtest applies a method to historical data. Missing data, survivorship bias, overfitting, costs, and changing conditions can make results misleading.",
-            "Market index": "A market index tracks a selected group of securities using a defined method. It can help describe a segment of the market, but it is not the entire market.",
-            "Corporate action": "A corporate action is an event initiated by a company that can affect its securities or shareholders, such as a split, bonus issue, or dividend."
+# Company one view
+with tabs[2]:
+    st.subheader(f"{symbol} • Company research page")
+    profile = get_company_profile(symbol)
+    hist = get_history(symbol, period, "1d")
+    if profile:
+        company_name = profile.get("longName") or profile.get("shortName") or symbol
+        st.markdown(f"### {company_name}")
+        st.caption("Company profile fields are supplied by an unofficial third-party data source and may be missing or outdated.")
+        x1, x2, x3 = st.columns(3)
+        x1.metric("Sector", profile.get("sector") or "Not available")
+        x2.metric("Industry", profile.get("industry") or "Not available")
+        x3.metric("Website", "Available" if profile.get("website") else "Not listed")
+        summary = profile.get("longBusinessSummary")
+        if summary:
+            with st.expander("Business description", expanded=True):
+                st.write(summary)
+        st.markdown("### Company facts")
+        facts = {
+            "Exchange": profile.get("exchange"),
+            "Currency": profile.get("currency"),
+            "Country": profile.get("country"),
+            "Employees": profile.get("fullTimeEmployees"),
+            "Website": profile.get("website"),
         }
-        topic = st.selectbox("Choose a concept", list(lessons))
-        st.info(lessons[topic])
-        st.markdown("**Quick reflection**")
-        st.write("Can you explain this concept in your own words and give one example?")
+        facts_df = pd.DataFrame([{"Field": k, "Value": v} for k, v in facts.items() if v not in (None, "")])
+        if not facts_df.empty:
+            st.dataframe(facts_df, hide_index=True, use_container_width=True)
+        if profile.get("website"):
+            st.markdown(f"[Open company website]({profile.get('website')})")
+    else:
+        st.info("Company profile information is unavailable from the data provider for this ticker.")
+    st.markdown("### Historical price context")
+    if not hist.empty:
+        st.line_chart(hist["Close"], height=230)
+        st.caption("Historical prices are descriptive only and do not predict future performance.")
+    st.markdown("### Recent company-related headlines")
+    news = get_company_news(symbol)
+    shown = 0
+    for item in news[:12]:
+        item = item.get("content", item) if isinstance(item, dict) else {}
+        title = item.get("title") or item.get("headline")
+        canonical = item.get("canonicalUrl") or item.get("link") or {}
+        url = canonical.get("url") if isinstance(canonical, dict) else canonical
+        publisher = item.get("publisher") or (item.get("provider", {}).get("displayName") if isinstance(item.get("provider"), dict) else None)
+        if title and url:
+            st.markdown(f"- [{title}]({url})")
+            if publisher:
+                st.caption(publisher)
+            shown += 1
+    if shown == 0:
+        st.caption("No headlines were returned. Use official company announcements and exchange filings for verification.")
+    st.markdown("[Find official NSE company filings](https://www.nseindia.com/companies-listing/corporate-filings-announcements)")
 
-    with tab4:
-        st.markdown("### Classroom portfolio · virtual points only")
-        st.write("A simple classroom demonstration for understanding fictional holdings and values. It is not connected to a broker and does not place orders.")
-        if "virtual_points" not in st.session_state:
-            st.session_state.virtual_points = 10000.0
-        if "virtual_units" not in st.session_state:
-            st.session_state.virtual_units = 0.0
-        a, b = st.columns(2)
-        a.metric("Starting virtual points", "10,000")
-        b.metric("Virtual units recorded", f"{st.session_state.virtual_units:.2f}")
-        st.caption("The classroom demo records no real transactions and does not use real money.")
-        if st.button("Reset classroom demo"):
-            st.session_state.virtual_points = 10000.0
-            st.session_state.virtual_units = 0.0
-            st.success("Classroom demo reset.")
+# Historical charts
+with tabs[3]:
+    st.subheader("Historical chart laboratory")
+    hist = get_history(symbol, period, interval)
+    if not hist.empty and {"Open", "High", "Low", "Close"}.issubset(hist.columns):
+        close = hist["Close"].astype(float)
+        chart_mode = st.radio("Visualisation", ["Candlestick", "Closing-price line"], horizontal=True, key="chart_mode")
+        fig = go.Figure()
+        if chart_mode == "Candlestick":
+            fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name="Historical price"))
+        else:
+            fig.add_trace(go.Scatter(x=hist.index, y=close, mode="lines", name="Close"))
+        fig.add_trace(go.Scatter(x=hist.index, y=close.rolling(20).mean(), mode="lines", name="20-observation average", line=dict(dash="dot")))
+        fig.update_layout(height=480, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=8,r=8,t=25,b=8), paper_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig, use_container_width=True)
+        if "Volume" in hist:
+            st.markdown("### Historical volume")
+            st.bar_chart(hist["Volume"], height=200)
+        st.download_button("Download displayed history (CSV)", hist.to_csv().encode("utf-8"), file_name=f"{symbol.replace('.', '_')}_history.csv", mime="text/csv")
+    else:
+        st.info("Chart data is unavailable for this symbol and interval.")
 
-    with st.expander("🗂️ Raw data preview and CSV export"):
-        st.dataframe(df.tail(30), use_container_width=True)
-        st.download_button("⬇️ Download displayed history as CSV", data=df.to_csv().encode("utf-8"), file_name=f"{ticker.replace('.', '_')}_history.csv", mime="text/csv")
-else:
-    st.markdown("### Start exploring")
-    st.write("Enter an NSE or BSE symbol in the sidebar, choose a historical period, and select Load historical data.")
-    st.write("Examples: RELIANCE.NS, TCS.NS, INFY.NS, SBIN.BO.")
-    st.caption("If data is unavailable, check the ticker spelling or try again later.")
+# Research desk
+with tabs[4]:
+    st.subheader("Multi-role research desk")
+    st.caption("These explainers use historical data and public information. They are not autonomous agents and do not issue trade instructions.")
+    hist = get_history(symbol, period, "1d")
+    if not hist.empty and "Close" in hist:
+        close = hist["Close"].astype(float).dropna()
+        if len(close) > 1:
+            change = (float(close.iloc[-1]) / float(close.iloc[0]) - 1) * 100
+            daily = close.pct_change().dropna()
+            vol = float(daily.std() * (252 ** 0.5) * 100) if len(daily) > 1 else 0
+            points = [
+                ("1 · Data quality reviewer", f"Loaded {len(hist)} observations. Check missing dates, outliers, adjusted-price methodology and source reliability."),
+                ("2 · Historical performance explainer", f"The selected sample changed by {change:+.2f}% between its first and last close. This is a description of that sample, not a forecast."),
+                ("3 · Risk-literacy educator", f"Simple annualised historical volatility estimate: {vol:.1f}%. Volatility measures variation in past returns, not the probability of a particular outcome."),
+                ("4 · Sector-context researcher", "Compare the company with its sector and broad indices. Different business models and market conditions can make comparisons imperfect."),
+                ("5 · Skeptical reviewer", "Ask what information is missing, whether the selected dates are unusual, and whether the data provider has revised or omitted observations."),
+                ("6 · Corporate-disclosure reader", "Read company announcements, annual reports, financial results and exchange filings before drawing conclusions from a chart."),
+                ("7 · News-context reviewer", "Headlines can be incomplete or sensational. Open the original publisher link, check its date, and distinguish reported facts from commentary."),
+                ("8 · Bias checker", "Watch for confirmation bias, recency bias, survivorship bias and social-media claims that show selected wins without a complete record.")
+            ]
+            for heading, explanation in points:
+                with st.expander(heading, expanded=False):
+                    st.write(explanation)
+        else:
+            st.info("More historical observations are needed for this research summary.")
+    else:
+        st.info("Load historical data to use the research desk.")
+    st.warning("No stock recommendations, entry/exit levels, F&O strategies, targets or stop-loss values are generated.")
+
+# Learning centre
+with tabs[5]:
+    st.subheader("Learning centre")
+    lessons = {
+        "Candlesticks": "A candle summarises open, high, low and close during one interval. The body shows the open-to-close range; the wicks show the interval extremes.",
+        "Trading volume": "Volume counts shares traded during an interval. It adds context but does not explain the cause of a price move by itself.",
+        "Moving averages": "A moving average smooths earlier observations. It is a historical summary, not a prediction.",
+        "Volatility": "Volatility describes variation in returns. Historical volatility does not guarantee future outcomes.",
+        "Diversification": "Diversification spreads exposure across different assets or sectors. It can reduce concentration but cannot remove every risk.",
+        "Market indices": "An index tracks a defined group of securities using a published method. It represents that group, not the entire economy.",
+        "Corporate actions": "Corporate actions include events such as dividends, splits, bonus issues, rights issues and buybacks.",
+        "Financial statements": "The balance sheet, income statement and cash-flow statement describe different aspects of a company's financial position and activity.",
+        "Market risk": "Market risk is the possibility that broad market or economic changes affect the value of securities.",
+        "Liquidity risk": "Liquidity risk relates to difficulty buying or selling an asset promptly without a significant price impact.",
+        "Backtesting limitations": "Backtests can be distorted by missing data, survivorship bias, overfitting, costs and changing market conditions.",
+        "Social-media due diligence": "Check dates, original sources and full context. Do not rely on screenshots of selected profitable examples or anonymous claims."
+    }
+    topic = st.selectbox("Choose a lesson", list(lessons))
+    st.info(lessons[topic])
+    st.markdown("### Knowledge check")
+    questions = [
+        ("Does past performance guarantee future returns?", ["Yes", "No"], "No"),
+        ("What does volume measure?", ["Shares traded", "Company profit", "Future price"], "Shares traded"),
+        ("What is diversification intended to reduce?", ["All risk", "Concentration risk", "Inflation always"], "Concentration risk"),
+        ("Where should company disclosures be verified?", ["Anonymous posts", "Official exchange/company sources", "Unverified screenshots"], "Official exchange/company sources"),
+    ]
+    if "quiz_answers" not in st.session_state:
+        st.session_state.quiz_answers = {}
+    for i, (question, options, answer) in enumerate(questions):
+        st.session_state.quiz_answers[i] = st.radio(question, options, key=f"quiz_{i}")
+    if st.button("Check my answers"):
+        score = sum(st.session_state.quiz_answers.get(i) == q[2] for i, q in enumerate(questions))
+        st.success(f"You got {score} out of {len(questions)} correct.")
+    st.markdown("### Trusted learning resources")
+    st.markdown("- [SEBI Investor education portal](https://investor.sebi.gov.in/)")
+    st.markdown("- [SEBI reading material](https://investor.sebi.gov.in/iematerial.html)")
+    st.markdown("- [SEBI video learning](https://investor.sebi.gov.in/inv_aware_edu_videos.html)")
+    st.markdown("- [NSE reports and market information](https://www.nseindia.com/report-detail)")
+    st.markdown("- [NISM investor awareness learning](https://www.nism.ac.in/sebi-investor-awareness-test/)")
+
+# Classroom lab
+with tabs[6]:
+    st.subheader("Classroom portfolio • fictional points only")
+    st.write("A learning simulation for recording made-up examples. It is not connected to a broker and does not use real money.")
+    if "classroom_points" not in st.session_state:
+        st.session_state.classroom_points = 10000
+    if "classroom_notes" not in st.session_state:
+        st.session_state.classroom_notes = []
+    a, b = st.columns(2)
+    a.metric("Starting virtual points", "10,000")
+    b.metric("Current fictional points", f"{st.session_state.classroom_points:,}")
+    with st.form("classroom_adjustment"):
+        delta = st.number_input("Add or subtract fictional points", min_value=-10000, max_value=10000, value=0, step=100)
+        note = st.text_input("Learning note (optional)")
+        submitted = st.form_submit_button("Record classroom example")
+    if submitted:
+        st.session_state.classroom_points = max(0, st.session_state.classroom_points + int(delta))
+        st.session_state.classroom_notes.append({"Change": int(delta), "Fictional points": st.session_state.classroom_points, "Note": note})
+        st.success("Classroom example recorded.")
+    if st.session_state.classroom_notes:
+        st.dataframe(pd.DataFrame(st.session_state.classroom_notes), hide_index=True, use_container_width=True)
+    if st.button("Reset classroom lab"):
+        st.session_state.classroom_points = 10000
+        st.session_state.classroom_notes = []
+        st.success("Classroom lab reset.")
 
 st.divider()
-st.caption("NSE AI Market Lab · Built for learning data visualisation and financial literacy · Not investment advice.")
+st.caption("NSE AI Market Lab • Free-first learning project • Historical data can be delayed or incomplete • Not investment advice.")
