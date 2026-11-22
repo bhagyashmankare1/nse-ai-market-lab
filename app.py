@@ -78,28 +78,81 @@ def get_company_news(symbol):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def get_sector_history(period):
+    """Build sector averages from available sample tickers, tolerating yfinance column-layout changes."""
     symbols = sorted(set(s for group in SECTOR_UNIVERSE.values() for s in group))
-    raw = yf.download(symbols, period=period, interval="1d", auto_adjust=True, progress=False, threads=False)
-    if raw.empty:
-        return pd.DataFrame()
-    if isinstance(raw.columns, pd.MultiIndex):
-        close = raw["Close"] if "Close" in raw.columns.get_level_values(0) else pd.DataFrame()
-    else:
-        close = raw[["Close"]] if "Close" in raw else pd.DataFrame()
+    close = pd.DataFrame()
+
+    try:
+        raw = yf.download(
+            symbols, period=period, interval="1d", auto_adjust=True,
+            progress=False, threads=False, group_by="column"
+        )
+        if not raw.empty:
+            if isinstance(raw.columns, pd.MultiIndex):
+                # yfinance versions may return either (Price, Ticker) or (Ticker, Price).
+                if "Close" in raw.columns.get_level_values(0):
+                    close = raw["Close"].copy()
+                elif "Close" in raw.columns.get_level_values(1):
+                    close = raw.xs("Close", axis=1, level=1).copy()
+            elif "Close" in raw.columns:
+                close = raw[["Close"]].copy()
+                if len(symbols) == 1:
+                    close.columns = symbols
+    except Exception:
+        close = pd.DataFrame()
+
+    # Fallback: fetch symbols individually if the batch response was empty or unusable.
+    if close.empty:
+        pieces = {}
+        for ticker in symbols:
+            try:
+                one = yf.download(
+                    ticker, period=period, interval="1d", auto_adjust=True,
+                    progress=False, threads=False
+                )
+                if one.empty:
+                    continue
+                if isinstance(one.columns, pd.MultiIndex):
+                    if "Close" in one.columns.get_level_values(0):
+                        series = one["Close"]
+                        if isinstance(series, pd.DataFrame):
+                            series = series.iloc[:, 0]
+                    elif "Close" in one.columns.get_level_values(1):
+                        series = one.xs("Close", axis=1, level=1).iloc[:, 0]
+                    else:
+                        continue
+                elif "Close" in one.columns:
+                    series = one["Close"]
+                else:
+                    continue
+                series = pd.to_numeric(series, errors="coerce").dropna()
+                if not series.empty:
+                    pieces[ticker] = series
+            except Exception:
+                continue
+        if pieces:
+            close = pd.DataFrame(pieces)
+
     if close.empty:
         return pd.DataFrame()
+
+    # Normalize possible duplicate or unexpected column labels.
+    close = close.loc[:, ~close.columns.duplicated()]
     rows = []
     for sector, names in SECTOR_UNIVERSE.items():
         changes = []
-        for name in names:
-            try:
-                series = close[name].dropna()
-                if len(series) > 1 and float(series.iloc[0]) != 0:
-                    changes.append((float(series.iloc[-1]) / float(series.iloc[0]) - 1) * 100)
-            except Exception:
+        for ticker in names:
+            if ticker not in close.columns:
                 continue
+            series = pd.to_numeric(close[ticker], errors="coerce").dropna()
+            if len(series) > 1 and float(series.iloc[0]) != 0:
+                changes.append((float(series.iloc[-1]) / float(series.iloc[0]) - 1) * 100)
         if changes:
-            rows.append({"Sector": sector, "Average historical change (%)": sum(changes) / len(changes), "Companies with data": len(changes)})
+            rows.append({
+                "Sector": sector,
+                "Average historical change (%)": sum(changes) / len(changes),
+                "Companies with data": len(changes)
+            })
     return pd.DataFrame(rows)
 
 with st.sidebar:
@@ -211,8 +264,10 @@ with tabs[1]:
             st.dataframe(sector_df.sort_values("Average historical change (%)", ascending=False), hide_index=True, use_container_width=True)
         else:
             st.info("Sector sample data could not be loaded. Try again later.")
-    except Exception:
-        st.info("The sector comparison service is temporarily unavailable. Please try again later.")
+    except Exception as error:
+        st.warning("Sector data could not be processed on this refresh. The data provider may be temporarily unavailable or may have changed its response format.")
+        with st.expander("Technical details"):
+            st.code(str(error))
     st.caption("Coverage is limited to the sample tickers listed in the app. Missing companies do not mean a sector was inactive.")
 
 # Company one view
