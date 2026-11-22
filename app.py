@@ -4,6 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
+from io import BytesIO
+from xml.sax.saxutils import escape
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
 
 st.set_page_config(page_title="NSE AI Market Lab", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
@@ -491,98 +499,209 @@ with tabs[7]:
 # Research report builder
 with tabs[8]:
     st.subheader("Company research report builder")
-    st.write("Create a downloadable educational snapshot from the selected company's available profile, historical observations and returned headlines.")
-    st.caption("This report is assembled from the data currently available in the app. It is not an AI-generated assessment, an audit of the company, or a recommendation.")
-    if st.button("Build research report", key="build_research_report"):
-        with st.spinner("Collecting the available company information..."):
+    st.write("Create a polished PDF snapshot from the selected company's available profile, historical observations and returned headlines.")
+    st.caption("This report is assembled from data currently available in the app. It is not an AI-generated assessment, an audit of the company, or a recommendation.")
+    if st.button("Build professional PDF report", key="build_research_report"):
+        with st.spinner("Collecting company information and designing your PDF..."):
             report_profile = get_company_profile(symbol)
             report_hist = get_history(symbol, period, "1d")
             report_news = get_company_news(symbol)
 
-        report_lines = [
-            "NSE AI MARKET LAB — EDUCATIONAL COMPANY RESEARCH REPORT",
-            f"Ticker: {symbol}",
-            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            f"Historical window selected: {period}",
-            "",
-            "IMPORTANT LIMITATIONS",
-            "Educational use only. This report is not investment advice and contains no buy/sell recommendation or forecast.",
-            "Market data and company profile fields come from an unofficial third-party provider and may be delayed, incomplete or outdated.",
-            "Verify material information against official company disclosures and exchange filings.",
-            "",
-            "1. COMPANY PROFILE"
-        ]
-        if report_profile:
-            report_name = report_profile.get("longName") or report_profile.get("shortName") or symbol
-            report_lines.extend([
-                f"Company name: {report_name}",
-                f"Sector: {report_profile.get('sector') or 'Not available'}",
-                f"Industry: {report_profile.get('industry') or 'Not available'}",
-                f"Country: {report_profile.get('country') or 'Not available'}",
-                f"Website: {report_profile.get('website') or 'Not available'}",
-                "",
-                "Business description:",
-                report_profile.get("longBusinessSummary") or "Not available from the data provider."
-            ])
-        else:
-            report_lines.append("Company profile was unavailable from the data provider.")
-        report_lines.extend(["", "2. HISTORICAL DATA SUMMARY"])
-        if not report_hist.empty and "Close" in report_hist.columns:
-            report_close = pd.to_numeric(report_hist["Close"], errors="coerce").dropna()
-            if len(report_close):
-                report_change = ((float(report_close.iloc[-1]) / float(report_close.iloc[0])) - 1) * 100 if len(report_close) > 1 and float(report_close.iloc[0]) else 0.0
-                report_lines.extend([
-                    f"Observations: {len(report_close)}",
-                    f"First available date: {report_close.index.min().date()}",
-                    f"Last available date: {report_close.index.max().date()}",
-                    f"Latest available close: {float(report_close.iloc[-1]):.2f}",
-                    f"Period change between first and last available close: {report_change:+.2f}%",
-                    "These are historical descriptions only; they do not predict future performance."
-                ])
-            else:
-                report_lines.append("No usable closing-price observations were returned.")
-        else:
-            report_lines.append("Historical price data was unavailable.")
-        report_lines.extend(["", "3. RECENT HEADLINES"])
-        headline_count = 0
-        for news_item in report_news[:8]:
-            news_item = news_item.get("content", news_item) if isinstance(news_item, dict) else {}
-            headline = news_item.get("title") or news_item.get("headline")
-            canonical = news_item.get("canonicalUrl") or news_item.get("link") or {}
-            headline_url = canonical.get("url") if isinstance(canonical, dict) else canonical
-            publisher_name = news_item.get("publisher") or (news_item.get("provider", {}).get("displayName") if isinstance(news_item.get("provider"), dict) else None)
-            if headline and headline_url:
-                report_lines.append(f"- {headline} | {publisher_name or 'Publisher not listed'} | {headline_url}")
-                headline_count += 1
-        if headline_count == 0:
-            report_lines.append("No headlines with usable links were returned. Check official company and exchange announcements.")
-        report_lines.extend([
-            "",
-            "4. SOURCE CHECKLIST",
-            "- Yahoo Finance data is unofficial; verify figures independently.",
-            "- Read the latest annual report and financial results.",
-            "- Review official exchange corporate announcements.",
-            "- Check the date, publisher and original context of every headline.",
-            "- Note missing observations, corporate actions and possible data-provider errors.",
-            "",
-            "Official resources:",
-            "NSE company filings: https://www.nseindia.com/companies-listing/corporate-filings-announcements",
-            "SEBI Investor: https://investor.sebi.gov.in/",
-            "",
-            "END OF EDUCATIONAL REPORT"
-        ])
-        report_text = "\n".join(report_lines)
-        st.success("Your educational report is ready.")
-        st.text_area("Report preview", report_text, height=420)
-        st.download_button(
-            "Download educational research report (.txt)",
-            data=report_text.encode("utf-8"),
-            file_name=f"{symbol.replace('.', '_')}_educational_research_report.txt",
-            mime="text/plain"
-        )
-    else:
-        st.info("Select a company ticker in the sidebar, then click Build research report.")
+            company_name = (report_profile.get("longName") or report_profile.get("shortName") or symbol) if report_profile else symbol
+            sector_name = report_profile.get("sector") or "Not available" if report_profile else "Not available"
+            industry_name = report_profile.get("industry") or "Not available" if report_profile else "Not available"
+            country_name = report_profile.get("country") or "Not available" if report_profile else "Not available"
+            website_url = report_profile.get("website") or "" if report_profile else ""
+            business_summary = report_profile.get("longBusinessSummary") or "A business description was not returned by the data provider." if report_profile else "Company profile information was unavailable from the data provider."
 
+            report_close = pd.to_numeric(report_hist["Close"], errors="coerce").dropna() if not report_hist.empty and "Close" in report_hist.columns else pd.Series(dtype=float)
+            observation_count = len(report_close)
+            if observation_count:
+                first_date = str(report_close.index.min().date())
+                last_date = str(report_close.index.max().date())
+                latest_close = float(report_close.iloc[-1])
+                report_change = ((latest_close / float(report_close.iloc[0])) - 1) * 100 if observation_count > 1 and float(report_close.iloc[0]) else 0.0
+            else:
+                first_date = last_date = "Not available"
+                latest_close = None
+                report_change = None
+
+            headline_items = []
+            for news_item in report_news[:8]:
+                news_item = news_item.get("content", news_item) if isinstance(news_item, dict) else {}
+                headline = news_item.get("title") or news_item.get("headline")
+                canonical = news_item.get("canonicalUrl") or news_item.get("link") or {}
+                headline_url = canonical.get("url") if isinstance(canonical, dict) else canonical
+                publisher_name = news_item.get("publisher") or (news_item.get("provider", {}).get("displayName") if isinstance(news_item.get("provider"), dict) else None)
+                if headline:
+                    headline_items.append((str(headline), str(publisher_name or "Publisher not listed"), str(headline_url or "")))
+
+        pdf_buffer = BytesIO()
+        page_width, page_height = A4
+        navy = colors.HexColor("#14243D")
+        blue = colors.HexColor("#2864A5")
+        pale_blue = colors.HexColor("#EAF2FB")
+        ink = colors.HexColor("#243247")
+        muted = colors.HexColor("#66758A")
+        light = colors.HexColor("#F4F7FB")
+        teal = colors.HexColor("#167D83")
+        orange = colors.HexColor("#C47724")
+
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=colors.white, alignment=TA_LEFT, spaceAfter=5))
+        styles.add(ParagraphStyle(name="ReportSubtitle", parent=styles["Normal"], fontName="Helvetica", fontSize=10, leading=15, textColor=colors.HexColor("#DCE8F5")))
+        styles.add(ParagraphStyle(name="SectionHeadingCustom", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=14, leading=18, textColor=navy, spaceBefore=13, spaceAfter=7))
+        styles.add(ParagraphStyle(name="BodyCustom", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=14, textColor=ink, spaceAfter=5))
+        styles.add(ParagraphStyle(name="SmallCustom", parent=styles["BodyText"], fontName="Helvetica", fontSize=7.5, leading=11, textColor=muted))
+        styles.add(ParagraphStyle(name="CardLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.5, leading=10, textColor=muted))
+        styles.add(ParagraphStyle(name="CardValue", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=navy))
+        styles.add(ParagraphStyle(name="NewsTitle", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=9, leading=12, textColor=blue, spaceAfter=2))
+        styles.add(ParagraphStyle(name="Callout", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=8.5, leading=12, textColor=navy))
+        
+        def footer(canvas, doc):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.HexColor("#D9E2EF"))
+            canvas.setLineWidth(0.6)
+            canvas.line(18 * mm, 15 * mm, page_width - 18 * mm, 15 * mm)
+            canvas.setFont("Helvetica", 7)
+            canvas.setFillColor(muted)
+            canvas.drawString(18 * mm, 10 * mm, "NSE AI Market Lab  |  Educational research only")
+            canvas.drawRightString(page_width - 18 * mm, 10 * mm, f"Page {doc.page}")
+            canvas.restoreState()
+
+        doc = SimpleDocTemplate(
+            pdf_buffer, pagesize=A4,
+            rightMargin=18 * mm, leftMargin=18 * mm,
+            topMargin=17 * mm, bottomMargin=22 * mm,
+            title=f"{company_name} - Educational Research Report",
+            author="NSE AI Market Lab"
+        )
+        story = []
+
+        cover = [
+            [Paragraph("NSE AI MARKET LAB", ParagraphStyle("Brand", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9, textColor=colors.HexColor("#A9C7E8"), leading=12))],
+            [Paragraph("Company Research<br/>Report", styles["ReportTitle"])],
+            [Paragraph(f"{escape(company_name)}  |  {escape(symbol)}", styles["ReportSubtitle"])],
+            [Paragraph(f"Prepared {datetime.now().strftime('%d %B %Y, %H:%M')}  •  Historical window: {escape(period)}", styles["ReportSubtitle"])]
+        ]
+        cover_table = Table(cover, colWidths=[page_width - 36 * mm], rowHeights=[12 * mm, 29 * mm, 13 * mm, 12 * mm])
+        cover_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), navy),
+            ("LEFTPADDING", (0, 0), (-1, -1), 12),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ROUNDEDCORNERS", [8, 8, 8, 8]),
+        ]))
+        story.extend([cover_table, Spacer(1, 8 * mm)])
+
+        warning = Table([[Paragraph("<b>EDUCATIONAL USE ONLY</b><br/>This report is not investment advice. It does not provide stock picks, buy/sell signals, forecasts or trading instructions. Market data and company details may be delayed, incomplete or outdated. Verify important information using official company and exchange disclosures.", styles["Callout"])]], colWidths=[page_width - 36 * mm])
+        warning.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF4DF")),
+            ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#E8C98C")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 9),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ]))
+        story.append(warning)
+
+        story.append(Paragraph("01  Company profile", styles["SectionHeadingCustom"]))
+        profile_rows = [
+            [Paragraph("SECTOR", styles["CardLabel"]), Paragraph("INDUSTRY", styles["CardLabel"]), Paragraph("COUNTRY", styles["CardLabel"])],
+            [Paragraph(escape(str(sector_name)), styles["CardValue"]), Paragraph(escape(str(industry_name)), styles["CardValue"]), Paragraph(escape(str(country_name)), styles["CardValue"])]
+        ]
+        profile_table = Table(profile_rows, colWidths=[(page_width - 36 * mm) / 3] * 3)
+        profile_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), pale_blue),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D6E2F0")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D6E2F0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 9),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.extend([profile_table, Spacer(1, 4 * mm), Paragraph("Business description", styles["BodyCustom"]), Paragraph(escape(str(business_summary)).replace("\n", "<br/>"), styles["BodyCustom"])])
+        if website_url.startswith(("http://", "https://")):
+            story.append(Paragraph(f'Company website: <link href="{escape(website_url, {chr(34): "&quot;"})}" color="#2864A5">{escape(website_url)}</link>', styles["SmallCustom"]))
+
+        story.append(Paragraph("02  Historical data snapshot", styles["SectionHeadingCustom"]))
+        if observation_count:
+            metric_rows = [
+                [Paragraph("OBSERVATIONS", styles["CardLabel"]), Paragraph("LATEST AVAILABLE CLOSE", styles["CardLabel"]), Paragraph("CHANGE IN SELECTED PERIOD", styles["CardLabel"])],
+                [Paragraph(f"{observation_count:,}", styles["CardValue"]), Paragraph(f"INR {latest_close:,.2f}", styles["CardValue"]), Paragraph(f"{report_change:+.2f}%", styles["CardValue"])]
+            ]
+            metric_table = Table(metric_rows, colWidths=[(page_width - 36 * mm) / 3] * 3)
+            metric_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), light),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DFE6EF")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#DFE6EF")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]))
+            story.extend([metric_table, Spacer(1, 3 * mm)])
+            date_rows = [[Paragraph("<b>First available date</b>", styles["BodyCustom"]), Paragraph(escape(first_date), styles["BodyCustom"])],
+                         [Paragraph("<b>Last available date</b>", styles["BodyCustom"]), Paragraph(escape(last_date), styles["BodyCustom"])]]
+            date_table = Table(date_rows, colWidths=[55 * mm, page_width - 91 * mm])
+            date_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.white), ("LINEBELOW", (0, 0), (-1, -1), 0.4, colors.HexColor("#E4EAF2")), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            story.extend([date_table, Paragraph("The percentage describes the first and last available closing observations in this dataset. It is not a forecast and does not account for every corporate action or data issue.", styles["SmallCustom"])])
+        else:
+            story.append(Paragraph("Historical closing-price data was unavailable for this selection.", styles["BodyCustom"]))
+
+        story.append(Paragraph("03  Recent company-related headlines", styles["SectionHeadingCustom"]))
+        if headline_items:
+            for index, (headline, publisher, headline_url) in enumerate(headline_items, start=1):
+                story.append(Paragraph(f"{index:02d}. {escape(headline)}", styles["NewsTitle"]))
+                meta = escape(publisher)
+                if headline_url.startswith(("http://", "https://")):
+                    meta += f'  |  <link href="{escape(headline_url, {chr(34): "&quot;"})}" color="#2864A5">Open source article</link>'
+                else:
+                    meta += "  |  Link not provided"
+                story.append(Paragraph(meta, styles["SmallCustom"]))
+                story.append(Spacer(1, 2 * mm))
+        else:
+            story.append(Paragraph("No headlines with usable titles were returned. Check official company and exchange announcements for current information.", styles["BodyCustom"]))
+
+        story.append(Paragraph("04  Researcher's verification checklist", styles["SectionHeadingCustom"]))
+        checklist = [
+            "Confirm company details using its official website and latest annual report.",
+            "Verify financial results and corporate announcements on the exchange website.",
+            "Check the date, publisher and original context of every headline.",
+            "Look for missing observations, corporate actions and possible data-provider errors.",
+            "Compare multiple reliable sources; do not rely on a single chart or headline."
+        ]
+        for item in checklist:
+            story.append(Paragraph(f"&bull; {escape(item)}", styles["BodyCustom"]))
+
+        story.append(Paragraph("Official learning and disclosure resources", styles["SectionHeadingCustom"]))
+        story.append(Paragraph('<link href="https://www.nseindia.com/companies-listing/corporate-filings-announcements" color="#2864A5">NSE company filings and announcements</link>', styles["BodyCustom"]))
+        story.append(Paragraph('<link href="https://investor.sebi.gov.in/" color="#2864A5">SEBI Investor education portal</link>', styles["BodyCustom"]))
+        story.append(Spacer(1, 4 * mm))
+        story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor("#D9E2EF")))
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph("Data source note: Historical market data, company profile fields and headlines are supplied by Yahoo Finance through yfinance. This is an unofficial source and may be delayed, incomplete, revised or unavailable. This report is a learning aid, not a complete company analysis.", styles["SmallCustom"]))
+
+        doc.build(story, onFirstPage=footer, onLaterPages=footer)
+        pdf_bytes = pdf_buffer.getvalue()
+        st.success("Your professionally formatted PDF report is ready.")
+        st.download_button(
+            "Download professional research report (PDF)",
+            data=pdf_bytes,
+            file_name=f"{symbol.replace('.', '_')}_educational_research_report.pdf",
+            mime="application/pdf"
+        )
+        with st.expander("Report contents"):
+            st.markdown("- Company profile and business description")
+            st.markdown("- Historical data snapshot with key metrics")
+            st.markdown("- Recent headlines with source links")
+            st.markdown("- Verification checklist and official resources")
+            st.markdown("- Educational-use disclaimer and page numbers")
+    else:
+        st.info("Select a company ticker in the sidebar, then click Build professional PDF report.")
 
 st.divider()
 st.caption("NSE AI Market Lab • Free-first learning project • Historical data can be delayed or incomplete • Not investment advice.")
