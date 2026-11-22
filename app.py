@@ -17,26 +17,46 @@ st.set_page_config(page_title="NSE AI Market Lab", page_icon="📊", layout="wid
 
 st.markdown("""
 <style>
-.stApp{background:#0b1020}
-[data-testid="stHeader"]{background:rgba(11,16,32,.85)}
-.block-container{max-width:1500px;padding-top:1.3rem;padding-bottom:3rem}
-[data-testid="stSidebar"]{background:#10182b;border-right:1px solid #24314b}
-[data-testid="stMetric"]{background:linear-gradient(145deg,#151f35,#111a2d);border:1px solid #263653;border-radius:14px;padding:14px}
-[data-testid="stMetricLabel"]{color:#a9b8d0}
-[data-testid="stMetricValue"]{color:#f4f7ff}
-.hero{background:linear-gradient(115deg,#172846,#14213b 55%,#1b2944);border:1px solid #2b4166;border-radius:20px;padding:22px 26px;margin-bottom:16px}
-.hero-kicker{color:#9db9e8;font-size:.76rem;letter-spacing:.12em;font-weight:700}
-.hero h1{color:#f4f7ff;margin:7px 0 4px;font-size:2rem}
-.hero p{color:#bdcbe0;margin:0}
+:root{color-scheme:dark}
+.stApp{background:radial-gradient(ellipse at 12% 0%,rgba(31,93,150,.22),transparent 34%),radial-gradient(ellipse at 92% 8%,rgba(20,140,132,.13),transparent 28%),#080f1d;color:#e8eef8}
+[data-testid="stHeader"]{background:rgba(8,15,29,.78);backdrop-filter:blur(14px)}
+.block-container{max-width:1540px;padding-top:1.15rem;padding-bottom:3.5rem}
+[data-testid="stSidebar"]{background:linear-gradient(180deg,#101d32,#0c1628);border-right:1px solid #263a57}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p{color:#bdcbe0}
+[data-testid="stMetric"]{background:linear-gradient(145deg,rgba(24,43,69,.96),rgba(14,27,46,.96));border:1px solid #2b4566;border-radius:16px;padding:16px 17px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+[data-testid="stMetricLabel"]{color:#a9bdd8;font-size:.82rem}
+[data-testid="stMetricValue"]{color:#f4f8ff;font-weight:750}
+.hero{position:relative;overflow:hidden;background:linear-gradient(115deg,#142b49 0%,#153c55 52%,#12504e 100%);border:1px solid rgba(124,177,218,.35);border-radius:24px;padding:30px 32px;margin:4px 0 22px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.hero:after{content:"";position:absolute;width:260px;height:260px;right:5%;top:-145px;border:1px solid rgba(206,235,255,.18);border-radius:50%;box-shadow:0 0 0 28px rgba(206,235,255,.035),0 0 0 58px rgba(206,235,255,.025)}
+.hero-kicker{color:#a9d9ed;font-size:.72rem;letter-spacing:.17em;font-weight:800}
+.hero h1{color:#f5f9ff;margin:9px 0 7px;font-size:clamp(2rem,4vw,2.8rem);font-weight:800;letter-spacing:-.04em}
+.hero p{color:#d0e0ed;margin:0;font-size:1.02rem;max-width:780px}
+.hero-tag{display:inline-block;margin-top:17px;padding:6px 11px;border:1px solid rgba(198,231,246,.25);border-radius:999px;background:rgba(7,19,35,.22);color:#d6edf5;font-size:.75rem;font-weight:650}
 .small-muted{color:#9aabc4;font-size:.85rem}
+h2,h3{letter-spacing:-.02em}
+[data-testid="stTabs"]{margin-top:8px}
+.stTabs [data-baseweb="tab-list"]{gap:7px;border-bottom:1px solid #253a55;padding:5px 4px 10px;overflow-x:auto}
+.stTabs [data-baseweb="tab"]{height:42px;background:#111e31;border:1px solid #253a55;border-radius:11px;padding:0 15px;color:#b7c7dc;font-weight:650;white-space:nowrap}
+.stTabs [aria-selected="true"]{background:linear-gradient(110deg,#1e5275,#17645f)!important;border-color:#3b8b91!important;color:#fff!important}
+.stTabs [data-baseweb="tab-highlight"]{background:#56c5bd}
+.stButton>button,.stDownloadButton>button{border:1px solid #367c88;border-radius:11px;background:linear-gradient(110deg,#1d5275,#17645f);color:#fff;font-weight:700;padding:.55rem 1rem;transition:all .18s ease}
+.stButton>button:hover,.stDownloadButton>button:hover{border-color:#78d5cb;background:linear-gradient(110deg,#286b91,#1b786f);transform:translateY(-1px);box-shadow:0 7px 18px rgba(10,100,110,.22)}
+.stTextInput input,.stSelectbox [data-baseweb="select"],.stNumberInput input,.stTextArea textarea{background:#101e32!important;border-color:#2b4563!important;border-radius:10px!important;color:#edf4ff!important}
+[data-testid="stExpander"]{border:1px solid #263c59;border-radius:13px;background:rgba(15,29,48,.62);overflow:hidden}
+[data-testid="stDataFrame"],[data-testid="stTable"]{border:1px solid #263c59;border-radius:12px;overflow:hidden}
+[data-testid="stAlert"]{border-radius:12px}
+hr{border-color:#263a55}
+footer{visibility:hidden}
+@media(max-width:700px){.hero{padding:22px 20px}.hero h1{font-size:1.9rem}.stTabs [data-baseweb="tab"]{padding:0 10px}}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="hero">
-<div class="hero-kicker">INDIA • MARKET EDUCATION • HISTORICAL RESEARCH</div>
+<div class="hero-kicker">INDIA&nbsp; / &nbsp;MARKET EDUCATION&nbsp; / &nbsp;HISTORICAL RESEARCH</div>
 <h1>🇮🇳 NSE AI Market Lab</h1>
-<p>One learning workspace for market structure, company research, sector context and financial literacy.</p>
+<p>Your all-in-one learning terminal for exploring market history, company information, sector context and data quality.</p>
+<div class="hero-tag">✦ FREE-FIRST RESEARCH WORKSPACE &nbsp; • &nbsp; EDUCATIONAL USE ONLY</div>
 </div>
 """, unsafe_allow_html=True)
 
