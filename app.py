@@ -162,10 +162,51 @@ with tabs[1]:
     try:
         sector_df = get_sector_history(period)
         if not sector_df.empty:
-            fig = px.treemap(sector_df, path=["Sector"], values="Companies with data", color="Average historical change (%)",
-                             color_continuous_midpoint=0, hover_data={"Average historical change (%)":":.2f","Companies with data":True},
-                             title=f"Sample sector map • {period} historical window")
-            fig.update_layout(template="plotly_dark", height=520, paper_bgcolor="rgba(0,0,0,0)")
+            # Symmetric scale keeps positive and negative sector moves visually balanced.
+            # Red = negative historical change; green = positive; near-white = around zero.
+            color_limit = max(float(sector_df["Average historical change (%)"].abs().max()), 1.0)
+            fig = px.treemap(
+                sector_df,
+                path=["Sector"],
+                values="Companies with data",
+                color="Average historical change (%)",
+                color_continuous_scale=[
+                    [0.00, "#991b1b"],
+                    [0.18, "#dc2626"],
+                    [0.36, "#fca5a5"],
+                    [0.50, "#f8fafc"],
+                    [0.64, "#86efac"],
+                    [0.82, "#22c55e"],
+                    [1.00, "#166534"],
+                ],
+                range_color=(-color_limit, color_limit),
+                color_continuous_midpoint=0,
+                hover_data={"Average historical change (%)":":.2f","Companies with data":True},
+                title=f"Sector performance • {period} historical window",
+            )
+            fig.update_traces(
+                texttemplate="%{label}<br>%{color:.2f}%",
+                textfont=dict(color="#0b1020", size=14),
+                marker=dict(line=dict(color="#0b1020", width=3)),
+                tiling=dict(packing="squarify", pad=4),
+            )
+            fig.update_coloraxes(
+                colorbar=dict(
+                    title="Historical change",
+                    ticksuffix="%",
+                    tickfont=dict(color="#e5e7eb"),
+                    titlefont=dict(color="#e5e7eb"),
+                    outlinecolor="#64748b",
+                )
+            )
+            fig.update_layout(
+                template="plotly_dark",
+                height=560,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                title_font=dict(size=19, color="#f8fafc"),
+                margin=dict(l=8, r=8, t=55, b=8),
+            )
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(sector_df.sort_values("Average historical change (%)", ascending=False), hide_index=True, use_container_width=True)
         else:
