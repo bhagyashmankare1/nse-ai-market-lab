@@ -171,7 +171,7 @@ symbol = selected_symbol.strip().upper()
 if not symbol:
     symbol = "RELIANCE.NS"
 
-tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "🧹 Data quality lab", "📚 Learning centre", "🧪 Classroom lab"]
+tab_names = ["🌐 Market overview", "🗺️ Sector map", "🏢 Company in one view", "📊 Historical charts", "🧠 Research desk", "🧹 Data quality lab", "📚 Learning centre", "🧪 Classroom lab", "📝 Research report builder"]
 tabs = st.tabs(tab_names)
 
 # Market overview
@@ -486,6 +486,103 @@ with tabs[7]:
         st.session_state.classroom_points = 10000
         st.session_state.classroom_notes = []
         st.success("Classroom lab reset.")
+
+
+# Research report builder
+with tabs[8]:
+    st.subheader("Company research report builder")
+    st.write("Create a downloadable educational snapshot from the selected company's available profile, historical observations and returned headlines.")
+    st.caption("This report is assembled from the data currently available in the app. It is not an AI-generated assessment, an audit of the company, or a recommendation.")
+    if st.button("Build research report", key="build_research_report"):
+        with st.spinner("Collecting the available company information..."):
+            report_profile = get_company_profile(symbol)
+            report_hist = get_history(symbol, period, "1d")
+            report_news = get_company_news(symbol)
+
+        report_lines = [
+            "NSE AI MARKET LAB — EDUCATIONAL COMPANY RESEARCH REPORT",
+            f"Ticker: {symbol}",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"Historical window selected: {period}",
+            "",
+            "IMPORTANT LIMITATIONS",
+            "Educational use only. This report is not investment advice and contains no buy/sell recommendation or forecast.",
+            "Market data and company profile fields come from an unofficial third-party provider and may be delayed, incomplete or outdated.",
+            "Verify material information against official company disclosures and exchange filings.",
+            "",
+            "1. COMPANY PROFILE"
+        ]
+        if report_profile:
+            report_name = report_profile.get("longName") or report_profile.get("shortName") or symbol
+            report_lines.extend([
+                f"Company name: {report_name}",
+                f"Sector: {report_profile.get('sector') or 'Not available'}",
+                f"Industry: {report_profile.get('industry') or 'Not available'}",
+                f"Country: {report_profile.get('country') or 'Not available'}",
+                f"Website: {report_profile.get('website') or 'Not available'}",
+                "",
+                "Business description:",
+                report_profile.get("longBusinessSummary") or "Not available from the data provider."
+            ])
+        else:
+            report_lines.append("Company profile was unavailable from the data provider.")
+        report_lines.extend(["", "2. HISTORICAL DATA SUMMARY"])
+        if not report_hist.empty and "Close" in report_hist.columns:
+            report_close = pd.to_numeric(report_hist["Close"], errors="coerce").dropna()
+            if len(report_close):
+                report_change = ((float(report_close.iloc[-1]) / float(report_close.iloc[0])) - 1) * 100 if len(report_close) > 1 and float(report_close.iloc[0]) else 0.0
+                report_lines.extend([
+                    f"Observations: {len(report_close)}",
+                    f"First available date: {report_close.index.min().date()}",
+                    f"Last available date: {report_close.index.max().date()}",
+                    f"Latest available close: {float(report_close.iloc[-1]):.2f}",
+                    f"Period change between first and last available close: {report_change:+.2f}%",
+                    "These are historical descriptions only; they do not predict future performance."
+                ])
+            else:
+                report_lines.append("No usable closing-price observations were returned.")
+        else:
+            report_lines.append("Historical price data was unavailable.")
+        report_lines.extend(["", "3. RECENT HEADLINES"])
+        headline_count = 0
+        for news_item in report_news[:8]:
+            news_item = news_item.get("content", news_item) if isinstance(news_item, dict) else {}
+            headline = news_item.get("title") or news_item.get("headline")
+            canonical = news_item.get("canonicalUrl") or news_item.get("link") or {}
+            headline_url = canonical.get("url") if isinstance(canonical, dict) else canonical
+            publisher_name = news_item.get("publisher") or (news_item.get("provider", {}).get("displayName") if isinstance(news_item.get("provider"), dict) else None)
+            if headline and headline_url:
+                report_lines.append(f"- {headline} | {publisher_name or 'Publisher not listed'} | {headline_url}")
+                headline_count += 1
+        if headline_count == 0:
+            report_lines.append("No headlines with usable links were returned. Check official company and exchange announcements.")
+        report_lines.extend([
+            "",
+            "4. SOURCE CHECKLIST",
+            "- Yahoo Finance data is unofficial; verify figures independently.",
+            "- Read the latest annual report and financial results.",
+            "- Review official exchange corporate announcements.",
+            "- Check the date, publisher and original context of every headline.",
+            "- Note missing observations, corporate actions and possible data-provider errors.",
+            "",
+            "Official resources:",
+            "NSE company filings: https://www.nseindia.com/companies-listing/corporate-filings-announcements",
+            "SEBI Investor: https://investor.sebi.gov.in/",
+            "",
+            "END OF EDUCATIONAL REPORT"
+        ])
+        report_text = "\n".join(report_lines)
+        st.success("Your educational report is ready.")
+        st.text_area("Report preview", report_text, height=420)
+        st.download_button(
+            "Download educational research report (.txt)",
+            data=report_text.encode("utf-8"),
+            file_name=f"{symbol.replace('.', '_')}_educational_research_report.txt",
+            mime="text/plain"
+        )
+    else:
+        st.info("Select a company ticker in the sidebar, then click Build research report.")
+
 
 st.divider()
 st.caption("NSE AI Market Lab • Free-first learning project • Historical data can be delayed or incomplete • Not investment advice.")
