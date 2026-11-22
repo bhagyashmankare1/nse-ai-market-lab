@@ -591,7 +591,6 @@ with tabs[8]:
             ("RIGHTPADDING", (0, 0), (-1, -1), 12),
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("ROUNDEDCORNERS", [8, 8, 8, 8]),
         ]))
         story.extend([cover_table, Spacer(1, 8 * mm)])
 
